@@ -1,0 +1,10 @@
+import './application'
+
+import './calc'
+import './data'
+import './fc'
+import './lastMatch'
+import './makeSubmit'
+import './matches'
+import './stats'
+import './table'

@@ -1,0 +1,34 @@
+{
+  "dependencies": {
+    "@napi-rs/canvas": "^0.1.40",
+    "async-lock": "^1.4.0",
+    "chart.js": "^4.3.3",
+    "chartjs-plugin-annotation": "^3.0.1",
+    "date-fns": "^2.30.0",
+    "date-fns-tz": "^2.0.0",
+    "deta": "^1.1.0",
+    "discord.js": "^14.11.0",
+    "dotenv": "^16.0.3",
+    "mk8dx": "^1.5.9",
+    "nanoid": "^3.3.6",
+    "node-vibrant": "^3.1.6"
+  },
+  "devDependencies": {
+    "@types/async-lock": "^1.4.0",
+    "@typescript-eslint/eslint-plugin": "^6.2.0",
+    "@typescript-eslint/parser": "^6.2.0",
+    "eslint": "^8.45.0",
+    "eslint-config-prettier": "^8.8.0",
+    "prettier": "^3.0.0",
+    "ts-node": "^10.9.1",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5.0.4"
+  },
+  "scripts": {
+    "start": "node build/main.js",
+    "dev": "ts-node -r tsconfig-paths/register src/dev.ts",
+    "build": "tsc",
+    "watch": "tsc -w",
+    "lint": "eslint --fix './src/**/*.{js,ts}' && prettier --write './src/**/*.{js,ts}'"
+  }
+}
