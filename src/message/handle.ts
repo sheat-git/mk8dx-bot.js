@@ -2,7 +2,7 @@ import { Locale, Message } from 'discord.js'
 import { BotError, LocalizedBotError } from '@/utilities/error'
 import { MessageHandler } from './handler'
 import { handleTrackMessage } from '@/features/track/message'
-import { handleSokujiMessage } from '@/features/sokuji/add/message'
+import { handleSokujiMessage } from '@/features/sokuji/message'
 
 const prefixes = ['%', '％']
 

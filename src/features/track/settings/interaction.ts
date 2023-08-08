@@ -65,12 +65,13 @@ InteractionHandler.modalSubmit.register({
             throw createTextError(`No track found for ${name}.`, `${name}のコースが見つかりません。`)
         await interaction.deferUpdate()
         const { guild, id, track } = await getTrack(interaction)
-        track.additionals[interaction.fields.getTextInputValue('word')] = trackId
+        const word = interaction.fields.getTextInputValue('word')
+        track.additionals[word] = trackId
         await TrackService[guild ? 'guild' : 'user'].put(id, track)
         const isJa = interaction.locale === 'ja'
         await interaction.editReply(await createTrackSettingsMessage({ guild, id, isJa }))
         await interaction.followUp({
-            content: isJa ? `${name} を辞書に追加しました。` : `Added ${name} to the dictionary.`,
+            content: isJa ? `${word} を辞書に追加しました。` : `Added ${word} to the dictionary.`,
             ephemeral: !guild,
         })
     },

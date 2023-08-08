@@ -16,7 +16,7 @@ export class TrackService {
     static readonly user = new TrackService('UserTrack')
     static readonly guild = new TrackService('GuildTrack')
 
-    static async search(options: { nick: string; userId: string; guildId?: string }) {
+    static async search(options: { nick: string; userId: string; guildId?: string | null }) {
         let trackId: number | undefined
         if (options.guildId) {
             const guild = await TrackService.guild.get(options.guildId)

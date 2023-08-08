@@ -1,6 +1,6 @@
 import { InteractionHandler } from '@/interaction'
-import { LatestTrackService } from '@/services/track'
-import { Sokuji, createTextError } from '@/utilities'
+import { LatestTrackService, TrackService } from '@/services'
+import { Sokuji, createTextError, sokujiLock } from '@/utilities'
 import {
     ComponentType,
     MessageComponentInteraction,
@@ -15,7 +15,7 @@ const checkSokuji = async (options: {
     interaction: MessageComponentInteraction | ModalSubmitInteraction
 }) => {
     if (options.sokuji.prevMessageId === options.interaction.message?.id) return
-    await options.sokuji.editPrevMessage(options.interaction.client, { hideComponents: true })
+    options.sokuji.editPrevMessage(options.interaction.client, { components: 'overwrite' }).catch(() => {})
     throw createTextError(
         'Some error has occurred. Please try again with the latest sokuji displayed by running `/sokuji now`.',
         '何らかのエラーが発生しました。`/sokuji now`を実行して表示された最新の即時集計に再度お試しください。',
@@ -24,15 +24,12 @@ const checkSokuji = async (options: {
 
 InteractionHandler.button.register({
     commands: ['sokuji', 'add'],
-    handle: async (interaction) => {
-        const [sokuji, track] = await Promise.all([
-            Sokuji.loadNow(interaction.channelId, true),
-            LatestTrackService.default.get(interaction.channelId, SnowflakeUtil.timestampFrom(interaction.message.id)),
-        ])
-        await checkSokuji({ sokuji, interaction })
+    handle: async (interaction, [option]) => {
+        const tags = option.split(' ')
+        const format = 12 / tags.length
         const customId = `sokuji_add_${interaction.message.id}`
         const isJa = interaction.locale === 'ja'
-        switch (sokuji.format) {
+        switch (format) {
             case 6:
                 await interaction.showModal({
                     customId,
@@ -40,7 +37,7 @@ InteractionHandler.button.register({
                     components: [
                         {
                             customId: 'ranks_0',
-                            label: sokuji.tags[0],
+                            label: tags[0],
                             placeholder: '123456',
                             required: true,
                         },
@@ -48,7 +45,6 @@ InteractionHandler.button.register({
                             customId: 'track',
                             label: isJa ? 'コース' : 'Track',
                             placeholder: isJa ? Track.All[0].abbrJa : Track.All[0].abbr,
-                            value: (isJa ? track?.abbrJa : track?.abbr) ?? '',
                             required: false,
                         },
                     ].map((component) => ({
@@ -67,7 +63,7 @@ InteractionHandler.button.register({
                 await interaction.showModal({
                     customId,
                     title: isJa ? '順位を追加' : 'Add Ranks',
-                    components: sokuji.tags.slice(0, 5).map((tag, i) => ({
+                    components: tags.slice(0, 5).map((tag, i) => ({
                         type: ComponentType.ActionRow,
                         components: [
                             {
@@ -87,16 +83,15 @@ InteractionHandler.button.register({
                     customId,
                     title: isJa ? '順位とコースを追加' : 'Add Ranks and Track',
                     components: [
-                        ...sokuji.tags.map((tag, i) => ({
+                        ...tags.map((tag, i) => ({
                             customId: `ranks_${i}`,
                             label: tag,
-                            placeholder: [...Array(sokuji.format)].map((_, j) => i * sokuji.format + j).join(''),
+                            placeholder: [...Array(format)].map((_, j) => i * format + j + 1).join(''),
                         })),
                         {
                             customId: 'track',
                             label: isJa ? 'コース' : 'Track',
                             placeholder: isJa ? Track.All[0].abbrJa : Track.All[0].abbr,
-                            value: (isJa ? track?.abbrJa : track?.abbr) ?? '',
                         },
                     ].map((component) => ({
                         type: ComponentType.ActionRow,
@@ -111,5 +106,59 @@ InteractionHandler.button.register({
                     })),
                 })
         }
+    },
+})
+
+InteractionHandler.modalSubmit.register({
+    commands: ['sokuji', 'add'],
+    handle: async (interaction) => {
+        await interaction.deferReply()
+        const ranks: (string | null)[] = []
+        const nullIndexes = []
+        for (let i = 0; i < 5; i++) {
+            const field = interaction.fields.fields.get(`ranks_${i}`)
+            if (!field) break
+            if (field.value) {
+                ranks.push(field.value)
+            } else {
+                nullIndexes.push(i)
+                ranks.push(null)
+            }
+        }
+        if (nullIndexes.length === 1) ranks[nullIndexes[0]] = ''
+        await sokujiLock.acquire(interaction.channelId!, async () => {
+            const sokuji = await Sokuji.loadNow(interaction.channelId!, true)
+            checkSokuji({ sokuji, interaction })
+            const isPending = sokuji.pendingRace !== null
+            const race = isPending ? sokuji.pendingRace! : await sokuji.startNextRace(false)
+            const track = interaction.fields.fields.get('track')?.value
+            if (track)
+                race.track = await TrackService.search({
+                    nick: track,
+                    userId: interaction.user.id,
+                    guildId: interaction.guildId,
+                })
+            else if (!isPending)
+                race.track = await LatestTrackService.default.get(
+                    interaction.channelId!,
+                    SnowflakeUtil.timestampFrom(sokuji.prevMessageId),
+                )
+            if (race.set(ranks, isPending)) {
+                sokuji.pushPendingRace()
+                const [_, newMessage] = await Promise.all([
+                    sokuji.format !== 6 ? interaction.followUp(await sokuji.createRaceMessage(-1)) : null,
+                    interaction.followUp(await sokuji.createMessage()),
+                    sokuji.deletePendingRaceMessage(interaction.client),
+                    sokuji.deletePrevMessage(interaction.client),
+                ])
+                await sokuji.save(newMessage.id)
+            } else {
+                const [newMessage] = await Promise.all([
+                    interaction.followUp(await sokuji.createRaceMessage(true)),
+                    sokuji.deletePendingRaceMessage(interaction.client),
+                ])
+                await sokuji.saveWithPendingRace(newMessage.id)
+            }
+        })
     },
 })

@@ -10,7 +10,7 @@ export class NowCommand extends Command {
                     ...(await sokuji.createMessage()),
                     fetchReply: true,
                 }),
-                sokuji.editPrevMessage(this.data.client, { hideComponents: true }),
+                sokuji.editPrevMessage(this.data.client, { components: 'delete' }),
             ])
             await sokuji.save(message.id)
         })

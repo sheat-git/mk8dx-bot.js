@@ -1,22 +1,28 @@
-import { GuildService } from '@/services/guild'
-import { SokujiConfigItem, SokujiConfigService, SokujiEntity, SokujiService } from '@/services/sokuji'
+import {
+    GuildService,
+    LatestTrackService,
+    SokujiConfigItem,
+    SokujiConfigService,
+    SokujiEntity,
+    SokujiService,
+} from '@/services'
 import {
     ActionRowBuilder,
     ButtonBuilder,
     ButtonStyle,
     Client,
     ComponentType,
+    EmbedBuilder,
     Guild,
     If,
     SnowflakeUtil,
 } from 'discord.js'
-import { MessageOptions } from './message'
-import { createColoredEmbed } from '@/components/embed'
+import { Component, Embed, MessageOptions } from './message'
+import { createColoredEmbed } from '@/components'
 import AsyncLock from 'async-lock'
 import { createTextError } from './error'
 import { nanoid } from 'nanoid'
 import { Track } from 'mk8dx'
-import { LatestTrackService } from '@/services/track'
 import { createCanvas } from '@napi-rs/canvas'
 import { hslToRgb, rgbToHsl } from 'node-vibrant/lib/util'
 import { Chart, ChartOptions } from 'chart.js'
@@ -50,6 +56,9 @@ export class Sokuji<HasPrev extends boolean = boolean> {
     showImage: boolean
     mode: 'classic' | 'compact'
     isEnded: boolean
+    private readonly cache: {
+        embed?: EmbedBuilder
+    } = {}
 
     get teamNum() {
         return this.tags.length
@@ -71,7 +80,7 @@ export class Sokuji<HasPrev extends boolean = boolean> {
         for (const i of Object.keys(this.others)
             .map(Number)
             .sort((a, b) => b - a)) {
-            entries.splice(i, 0, ...this.others[i])
+            entries.splice(Math.min(i, this.races.length), 0, ...this.others[i])
         }
         return entries
     }
@@ -108,7 +117,7 @@ export class Sokuji<HasPrev extends boolean = boolean> {
         this.isJa = options.isJa ?? false
         this.showText = options.showText ?? false
         this.showImage = options.showImage ?? false
-        this.mode = options.mode ?? 'classic'
+        this.mode = options.mode ?? 'compact'
         this.isEnded = options.isEnded ?? false
     }
 
@@ -155,7 +164,7 @@ export class Sokuji<HasPrev extends boolean = boolean> {
             raceNum: 12,
             races: [],
             pendingRace: null,
-            others: [],
+            others: {},
             isJa: config?.isJa ?? guild?.isJa,
             showText: config?.showText,
             showImage: config?.showImage,
@@ -249,12 +258,11 @@ export class Sokuji<HasPrev extends boolean = boolean> {
         ])
     }
 
-    async startNextRace() {
+    async startNextRace(withTrack = true) {
         this.pendingRace = new SokujiRace({
-            track: await LatestTrackService.default.get(
-                this.channelId,
-                SnowflakeUtil.timestampFrom(this.prevMessageId!),
-            ),
+            track: withTrack
+                ? await LatestTrackService.default.get(this.channelId, SnowflakeUtil.timestampFrom(this.prevMessageId!))
+                : null,
             format: this.format,
         })
         return this.pendingRace
@@ -286,6 +294,11 @@ export class Sokuji<HasPrev extends boolean = boolean> {
         this.pendingRace = null
     }
 
+    private async createColoredEmbed() {
+        if (!this.cache.embed) this.cache.embed = await createColoredEmbed(this.guildId)
+        return EmbedBuilder.from(this.cache.embed)
+    }
+
     private createContent(): string {
         return this.showText
             ? this.scores
@@ -301,35 +314,39 @@ export class Sokuji<HasPrev extends boolean = boolean> {
     }
 
     private async createEmbed() {
-        const hideDif = this.format === 2
-        const embed = (await createColoredEmbed(this.guildId))
-            .setTitle(this.tags.join(' - '))
-            .setDescription(
-                '```ansi\n' +
-                    scoresToAnsi(this.scores, { pad: 1, hideDif }) +
-                    ` \u001b[34m@${this.raceNum - this.races.length}` +
-                    '```',
-            )
+        const hideDiff = this.format === 2
+        const description =
+            '```ansi\n' +
+            scoresToAnsi(this.scores, { pad: 1, hideDiff }) +
+            ` \u001b[34m@${this.raceNum - this.races.length}` +
+            '```'
+        const embed = (await this.createColoredEmbed()).setTitle(this.tags.join(' - ')).setDescription(description)
+        if (this.showImage) embed.setImage('attachment://sokuji.png')
+        const entries = this.entries
         switch (this.mode) {
             case 'classic':
                 return embed.addFields(
-                    this.races.map((race, i) => {
-                        let name = `${i + 1}.`
-                        if (race.track)
-                            name += ` ${race.track.emoji} ${this.isJa ? race.track.abbrJa : race.track.abbr}`
+                    entries.slice(-25).map((entry) => {
+                        if ('reason' in entry)
+                            return {
+                                name: entry.reason,
+                                value: '```ansi\n' + scoresToAnsi(entry.scores, { hideDiff }) + '```',
+                            }
+                        let name = `${entry.n}.`
+                        if (entry.track)
+                            name += ` ${entry.track.emoji} ${this.isJa ? entry.track.abbrJa : entry.track.abbr}`
                         return {
                             name,
                             value:
                                 '```ansi\n' +
-                                scoresToAnsi(race.scores, { hideDif }) +
+                                scoresToAnsi(entry.scores, { hideDiff }) +
                                 ' | ' +
-                                race.ranks.join(',') +
+                                entry.ranks.join(',') +
                                 '```',
                         }
                     }),
                 )
             case 'compact':
-                const entries = this.entries
                 if (!entries.length) return embed
                 const entriesField = {
                     name: this.isJa ? 'スコア' : 'Scores',
@@ -338,13 +355,15 @@ export class Sokuji<HasPrev extends boolean = boolean> {
                         entries
                             .slice(-20)
                             .map((entry) => {
-                                const ansiScores = scoresToAnsi(entry.scores, { hideDif: hideDif || this.format === 3 })
+                                const ansiScores = scoresToAnsi(entry.scores, {
+                                    hideDiff: hideDiff || this.format === 3,
+                                })
                                 if (this.races.length === 0) {
                                     return ansiScores + ' | ' + (entry as { reason: string }).reason
                                 }
                                 const isRace = 'n' in entry
                                 return (
-                                    (isRace ? `${entry.n} | ` : '').padStart(this.races.length.toString().length + 3) +
+                                    (isRace ? `${entry.n} |` : '').padStart(this.races.length.toString().length + 2) +
                                     ansiScores +
                                     ' | ' +
                                     (isRace ? entry.ranks.join(',') : entry.reason)
@@ -375,7 +394,8 @@ export class Sokuji<HasPrev extends boolean = boolean> {
         }
     }
 
-    createImage(): Buffer | null {
+    private createImage(): Buffer | null {
+        if (!this.showImage) return null
         const withGraph = this.races.length === this.raceNum
         const formatIs6 = this.format === 6
         const canvas = createCanvas(1280, withGraph ? 720 : 400)
@@ -497,7 +517,7 @@ export class Sokuji<HasPrev extends boolean = boolean> {
                                 borderJoinStyle: 'round',
                                 borderColor(ctx) {
                                     if (!ctx.chart.chartArea || difs.length <= 1) return null
-                                    const colors = teams.map((team) => '#' + team.color.toString(16).padStart(6, '0'))
+                                    const colors = teams.map((team) => numberToHex(team.color))
                                     const gradient = graphCtx.createLinearGradient(
                                         ctx.chart.chartArea.left,
                                         0,
@@ -587,7 +607,7 @@ export class Sokuji<HasPrev extends boolean = boolean> {
                         labels: Array(datas[0].length).fill(''),
                         datasets: [...Array(this.teamNum)].map((_, i) => ({
                             borderJoinStyle: 'round',
-                            borderColor: numberToHex(teams[i].color),
+                            borderColor: numberToHex(this.colors[i]),
                             pointStyle: false,
                             data: datas[i],
                         })),
@@ -602,19 +622,20 @@ export class Sokuji<HasPrev extends boolean = boolean> {
         return image
     }
 
-    async createMessage(): Promise<MessageOptions> {
+    private createComponents(): Component[] {
         const actionRow = new ActionRowBuilder<ButtonBuilder>()
         if (!this.isEnded) {
             if (this.raceNum > this.races.length) {
                 actionRow.addComponents(
                     new ButtonBuilder()
-                        .setCustomId('sokuji_add')
+                        .setCustomId(`sokuji_add_${this.tags.join(' ')}`)
                         .setLabel(this.isJa ? '追加' : 'Add')
                         .setStyle(ButtonStyle.Primary),
                 )
             }
             switch (this.format) {
                 case 6:
+                case 4:
                     actionRow.addComponents(
                         new ButtonBuilder()
                             .setCustomId('sokuji_edit_race')
@@ -626,7 +647,13 @@ export class Sokuji<HasPrev extends boolean = boolean> {
                     actionRow.addComponents(
                         new ButtonBuilder()
                             .setCustomId('sokuji_edit_track')
-                            .setLabel(this.isJa ? 'コースを編集' : 'Edit Track')
+                            .setLabel(this.isJa ? 'コース編集' : 'Edit Track')
+                            .setStyle(ButtonStyle.Success),
+                    )
+                    actionRow.addComponents(
+                        new ButtonBuilder()
+                            .setCustomId('sokuji_edit_ranks')
+                            .setLabel(this.isJa ? '順位編集' : 'Edit Ranks')
                             .setStyle(ButtonStyle.Success),
                     )
             }
@@ -634,7 +661,7 @@ export class Sokuji<HasPrev extends boolean = boolean> {
                 actionRow.addComponents(
                     new ButtonBuilder()
                         .setCustomId('sokuji_undo')
-                        .setLabel(this.isJa ? '1つ戻す' : 'Undo Last')
+                        .setLabel(this.isJa ? '戻す' : 'Undo')
                         .setStyle(ButtonStyle.Danger),
                 )
             }
@@ -646,11 +673,15 @@ export class Sokuji<HasPrev extends boolean = boolean> {
                     .setStyle(ButtonStyle.Secondary),
             )
         }
+        return actionRow.components.length ? [actionRow] : []
+    }
+
+    async createMessage(): Promise<MessageOptions> {
         const embed = await this.createEmbed()
-        const image = this.showImage ? this.createImage() : null
+        const image = this.createImage()
         return {
             content: this.createContent(),
-            embeds: [embed.setImage(image ? 'attachment://sokuji.png' : null)],
+            embeds: [embed],
             files: image
                 ? [
                       {
@@ -659,169 +690,175 @@ export class Sokuji<HasPrev extends boolean = boolean> {
                       },
                   ]
                 : [],
-            components: actionRow.components.length ? [actionRow] : [],
+            components: this.createComponents(),
         }
+    }
+
+    private async createConfigEmbed() {
+        return (await this.createColoredEmbed()).setTitle(this.isJa ? '即時集計 設定' : 'Sokuji Options').addFields(
+            {
+                name: this.isJa ? '表示' : 'View',
+                value: this.isJa
+                    ? '1. **テキスト**: コピペ用のテキストも送信します。\n' +
+                      '1. **画像**: 配信ウィジェットと同様の画像も送信します。\n' +
+                      '1. モード:\n' +
+                      '  - **クラシック**: 従来の表示方法です。\n' +
+                      '  - **コンパクト**: 内容をコースとスコアに分けた、より簡潔な表示方法です。'
+                    : '1. **Text**: Send a text for copy and paste.\n' +
+                      '1. **Image**: Send an image similar to the stream widget.\n' +
+                      '1. Mode:\n' +
+                      '  - **Classic**: The conventional mode.\n' +
+                      '  - **Compact**: A more concise mode that divides the content into tracks and scores.',
+                inline: false,
+            },
+            {
+                name: this.isJa ? '配信ウィジェット' : 'Stream Widget',
+                value:
+                    (this.isJa
+                        ? `<#${this.channelId}> チャンネル用の配信ウィジェットURLは以下です。\nこれはこのチャンネルで即時集計を行う限り固定です。`
+                        : `The stream widget URL for <#${this.channelId}> is as follows.\nThis is fixed as long as you do sokuji in this channel.`) +
+                    `\nhttps://mk8dx.pages.dev/sokuji?channel_id=${this.channelId}`,
+                inline: false,
+            },
+        )
+    }
+
+    createConfigComponents(): Component[] {
+        return [
+            {
+                type: ComponentType.ActionRow,
+                components: [
+                    this.isJa
+                        ? {
+                              type: ComponentType.Button,
+                              customId: 'sokuji_config_lang_en',
+                              label: 'English',
+                              style: ButtonStyle.Primary,
+                          }
+                        : {
+                              type: ComponentType.Button,
+                              customId: 'sokuji_config_lang_ja',
+                              label: '日本語',
+                              style: ButtonStyle.Primary,
+                          },
+                    this.showText
+                        ? {
+                              type: ComponentType.Button,
+                              customId: 'sokuji_config_text_hide',
+                              label: this.isJa ? 'テキスト非表示' : 'Hide Text',
+                              style: ButtonStyle.Primary,
+                          }
+                        : {
+                              type: ComponentType.Button,
+                              customId: 'sokuji_config_text_show',
+                              label: this.isJa ? 'テキスト表示' : 'Show Text',
+                              style: ButtonStyle.Primary,
+                          },
+                    this.showImage
+                        ? {
+                              type: ComponentType.Button,
+                              customId: 'sokuji_config_image_hide',
+                              label: this.isJa ? '画像非表示' : 'Hide Image',
+                              style: ButtonStyle.Primary,
+                          }
+                        : {
+                              type: ComponentType.Button,
+                              customId: 'sokuji_config_image_show',
+                              label: this.isJa ? '画像表示' : 'Show Image',
+                              style: ButtonStyle.Primary,
+                          },
+                ],
+            },
+            {
+                type: ComponentType.ActionRow,
+                components: [
+                    {
+                        type: ComponentType.StringSelect,
+                        customId: 'sokuji_config_mode',
+                        placeholder: this.isJa ? '表示モード' : 'Display Mode',
+                        options: [
+                            {
+                                label: this.isJa ? 'クラシック' : 'Classic',
+                                value: 'classic',
+                            },
+                            {
+                                label: this.isJa ? 'コンパクト' : 'Compact',
+                                value: 'compact',
+                            },
+                        ].map((option) => ({
+                            ...option,
+                            default: option.value === this.mode,
+                        })),
+                    },
+                ],
+            },
+            {
+                type: ComponentType.ActionRow,
+                components: [
+                    {
+                        type: ComponentType.Button,
+                        customId: 'sokuji_config_widget',
+                        label: this.isJa ? '配信ウィジェット' : 'Stream Widget',
+                        style: ButtonStyle.Primary,
+                    },
+                    {
+                        type: ComponentType.Button,
+                        customId: `sokuji_config_tags_${this.tags.join(' ')}`,
+                        label: this.isJa ? 'タグ変更' : 'Edit Tags',
+                        style: ButtonStyle.Success,
+                    },
+                    {
+                        type: ComponentType.Button,
+                        customId: 'sokuji_config_raceNum',
+                        label: this.isJa ? 'レース数変更' : 'Edit Total Races',
+                        style: ButtonStyle.Success,
+                    },
+                ],
+            },
+        ]
     }
 
     async createConfigMessage(): Promise<MessageOptions> {
         return {
-            embeds: [
-                (await createColoredEmbed(this.guildId))
-                    .setTitle(this.isJa ? '即時集計 設定' : 'Sokuji Options')
-                    .addFields(
-                        {
-                            name: this.isJa ? '表示' : 'View',
-                            value: this.isJa
-                                ? '1. テキスト: コピペ用のテキストも送信します。\n' +
-                                  '1. 画像: 配信ウィジェットと同様の画像も送信します。\n' +
-                                  '1. モード:\n' +
-                                  '  - **クラシック**: 従来の表示方法です。\n' +
-                                  '  - **コンパクト**: 内容をコースとスコアに分けた、より簡潔な表示方法です。'
-                                : '1. Text: Send a text for copy and paste.\n' +
-                                  '1. Image: Send an image similar to the stream widget.\n' +
-                                  '1. Mode:\n' +
-                                  '  - **Classic**: The conventional mode.\n' +
-                                  '  - **Compact**: A more concise mode that divides the content into tracks and scores.',
-                            inline: false,
-                        },
-                        {
-                            name: this.isJa ? '配信ウィジェット' : 'Stream Widget',
-                            value:
-                                (this.isJa
-                                    ? `<#${this.channelId}> チャンネル用の配信ウィジェットURLは以下です。\nこれはこのチャンネルで即時集計を行う限り固定です。`
-                                    : `The stream widget URL for <#${this.channelId}> is as follows.\nThis is fixed as long as you do sokuji in this channel.`) +
-                                `\nhttps://mk8dx.pages.dev/sokuji?channel_id=${this.channelId}`,
-                            inline: false,
-                        },
-                    ),
-            ],
-            components: [
-                {
-                    type: ComponentType.ActionRow,
-                    components: [
-                        this.isJa
-                            ? {
-                                  type: ComponentType.Button,
-                                  customId: 'sokuji_config_lang_en',
-                                  label: 'English',
-                                  style: ButtonStyle.Primary,
-                              }
-                            : {
-                                  type: ComponentType.Button,
-                                  customId: 'sokuji_config_lang_ja',
-                                  label: '日本語',
-                                  style: ButtonStyle.Primary,
-                              },
-                        this.showText
-                            ? {
-                                  type: ComponentType.Button,
-                                  customId: 'sokuji_config_text_hide',
-                                  label: this.isJa ? 'テキスト非表示' : 'Hide Text',
-                                  style: ButtonStyle.Primary,
-                              }
-                            : {
-                                  type: ComponentType.Button,
-                                  customId: 'sokuji_config_text_show',
-                                  label: this.isJa ? 'テキスト表示' : 'Show Text',
-                                  style: ButtonStyle.Primary,
-                              },
-                        this.showImage
-                            ? {
-                                  type: ComponentType.Button,
-                                  customId: 'sokuji_config_image_hide',
-                                  label: this.isJa ? '画像非表示' : 'Hide Image',
-                                  style: ButtonStyle.Primary,
-                              }
-                            : {
-                                  type: ComponentType.Button,
-                                  customId: 'sokuji_config_image_show',
-                                  label: this.isJa ? '画像表示' : 'Show Image',
-                                  style: ButtonStyle.Primary,
-                              },
-                    ],
-                },
-                {
-                    type: ComponentType.ActionRow,
-                    components: [
-                        {
-                            type: ComponentType.StringSelect,
-                            customId: 'sokuji_config_mode',
-                            placeholder: this.isJa ? '表示モード' : 'Display Mode',
-                            options: [
-                                {
-                                    label: this.isJa ? 'クラシック' : 'Classic',
-                                    value: 'classic',
-                                },
-                                {
-                                    label: this.isJa ? 'コンパクト' : 'Compact',
-                                    value: 'compact',
-                                },
-                            ].map((option) => ({
-                                ...option,
-                                default: option.value === this.mode,
-                            })),
-                        },
-                    ],
-                },
-                {
-                    type: ComponentType.ActionRow,
-                    components: [
-                        {
-                            type: ComponentType.Button,
-                            customId: 'sokuji_config_widget',
-                            label: this.isJa ? '配信ウィジェット' : 'Stream Widget',
-                            style: ButtonStyle.Primary,
-                        },
-                        {
-                            type: ComponentType.Button,
-                            customId: 'sokuji_config_tags',
-                            label: this.isJa ? 'タグ変更' : 'Edit Tags',
-                            style: ButtonStyle.Success,
-                        },
-                        {
-                            type: ComponentType.Button,
-                            customId: 'sokuji_config_raceNum',
-                            label: this.isJa ? 'レース数変更' : 'Edit Total Races',
-                            style: ButtonStyle.Success,
-                        },
-                    ],
-                },
-            ],
+            embeds: [await this.createConfigEmbed()],
+            components: this.createConfigComponents(),
         }
     }
 
-    private async createRaceEmbed(option: number | true) {
+    createRaceEmbed(pending: true): Promise<Embed>
+    createRaceEmbed(index: number): Promise<Embed>
+    createRaceEmbed(option: number | true): Promise<Embed>
+    async createRaceEmbed(option: number | true) {
         const pending = option === true
         const race = pending ? this.pendingRace! : this.races.at(option)!
         let title = `${(pending ? this.races.length : option >= 0 ? option : this.races.length + option) + 1}.`
         if (race.track) title += ` ${race.track.emoji} ${this.isJa ? race.track.abbrJa : race.track.abbr}`
-        return (await createColoredEmbed(this.guildId)).setTitle(title).addFields(
-            this.tags.map((tag, i) => {
-                if (race.scores[i] === 0) {
-                    return {
-                        name: tag,
-                        value: '```ansi\n\u001b[30m--```',
-                    }
-                }
-                let value = '```ansi\n' + race.scores[i].toString().padStart(2)
-                switch (i) {
-                    case 0:
-                        value += ' '.repeat(5)
-                        break
-                    default:
-                        const score = race.scores[i]
-                        const dif = race.scores[0] - score
-                        value +=
-                            '\u001b[30m(' +
-                            (dif >= 0 ? '\u001b[32m+' : '\u001b[31m-') +
-                            Math.abs(dif).toString().padStart(2) +
-                            '\u001b[30m)'
-                }
-                const ranks = race.getRanks(i)
-                if (ranks.length) value += ' \u001b[0m| ' + ranks.join(',')
-                value += '```'
-                return { name: tag, value }
-            }),
+        return (await this.createColoredEmbed()).setTitle(title).setDescription(
+            '```ansi\n' +
+                this.tags
+                    .map((tag, i) => {
+                        let text = `\u001b[34m${tag}\n\u001b[0m`
+                        if (race.scores[i] === 0) return text + '\u001b[30m--'
+                        text += race.scores[i].toString().padStart(2)
+                        switch (i) {
+                            case 0:
+                                text += ' '.repeat(5)
+                                break
+                            default:
+                                const score = race.scores[i]
+                                const dif = race.scores[0] - score
+                                text +=
+                                    '\u001b[30m(' +
+                                    (dif >= 0 ? '\u001b[32m+' : '\u001b[31m-') +
+                                    Math.abs(dif).toString().padStart(2) +
+                                    '\u001b[30m)'
+                        }
+                        const ranks = race.getRanks(i)
+                        if (ranks.length) text += ' \u001b[0m| ' + ranks.join(',')
+                        return text
+                    })
+                    .join('\n') +
+                '```',
         )
     }
 
@@ -835,13 +872,55 @@ export class Sokuji<HasPrev extends boolean = boolean> {
 
     async editPrevMessage(
         client: Client,
-        options: { hideComponents?: boolean } = {
-            hideComponents: false,
+        options: Partial<Record<'content' | 'embeds' | 'files' | 'components', EditType>> = {
+            content: 'overwrite',
+            embeds: 'overwrite',
+            files: 'overwrite',
+            components: 'overwrite',
         },
     ) {
         if (!this.prevMessageId) return
-        const message = await this.createMessage()
-        if (options.hideComponents) message.components = []
+        const message: MessageOptions = {}
+        switch (options.content) {
+            case 'overwrite':
+                message.content = this.createContent()
+                break
+            case 'delete':
+                message.content = ''
+                break
+        }
+        switch (options.embeds) {
+            case 'overwrite':
+                message.embeds = [await this.createEmbed()]
+                break
+            case 'delete':
+                message.embeds = []
+                break
+        }
+        switch (options.files) {
+            case 'overwrite':
+                const image = this.createImage()
+                message.files = image
+                    ? [
+                          {
+                              name: 'sokuji.png',
+                              attachment: image,
+                          },
+                      ]
+                    : []
+                break
+            case 'delete':
+                message.files = []
+                break
+        }
+        switch (options.components) {
+            case 'overwrite':
+                message.components = this.createComponents()
+                break
+            case 'delete':
+                message.components = []
+                break
+        }
         await client.editMessage(this.channelId, this.prevMessageId, message).catch(() => {})
     }
 
@@ -849,15 +928,43 @@ export class Sokuji<HasPrev extends boolean = boolean> {
         if (this.prevMessageId) await client.deleteMessage(this.channelId, this.prevMessageId).catch(() => {})
     }
 
-    async editConfigMessage(client: Client) {
-        if (this.configMessageId)
-            await client
-                .editMessage(this.channelId, this.configMessageId, await this.createConfigMessage())
-                .catch(() => {})
+    async editConfigMessage(
+        client: Client,
+        options: Partial<Record<'embeds' | 'components', EditType>> = {
+            embeds: 'overwrite',
+            components: 'overwrite',
+        },
+    ) {
+        if (!this.configMessageId) return
+        const message: MessageOptions = {}
+        switch (options.embeds) {
+            case 'overwrite':
+                message.embeds = [await this.createConfigEmbed()]
+                break
+            case 'delete':
+                message.embeds = []
+                break
+        }
+        switch (options.components) {
+            case 'overwrite':
+                message.components = this.createConfigComponents()
+                break
+            case 'delete':
+                message.components = []
+                break
+        }
+        await client.editMessage(this.channelId, this.configMessageId, message).catch(() => {})
     }
 
     async deleteConfigMessage(client: Client) {
         if (this.configMessageId) await client.deleteMessage(this.channelId, this.configMessageId).catch(() => {})
+    }
+
+    async editPendingRaceMessage(client: Client) {
+        if (this.pendingRaceMessageId)
+            await client
+                .editMessage(this.channelId, this.pendingRaceMessageId, await this.createRaceMessage(true))
+                .catch(() => {})
     }
 
     async deletePendingRaceMessage(client: Client) {
@@ -866,27 +973,31 @@ export class Sokuji<HasPrev extends boolean = boolean> {
     }
 }
 
+type EditType = 'preserve' | 'overwrite' | 'delete'
+
 const scoresToAnsi = (
     scores: number[],
     options?: {
         pad?: number
-        hideDif?: boolean
+        diffPad?: number
+        hideDiff?: boolean
     },
 ) => {
-    const pad = options?.pad ?? 2
-    if (options?.hideDif) return scores.map((score) => score.toString().padStart(pad)).join(':')
+    const pad = options?.pad ?? 3
+    const diffPad = options?.diffPad ?? options?.pad ?? 2
+    if (options?.hideDiff) return scores.map((score) => score.toString().padStart(pad)).join(':')
     return (
         '\u001b[0m' +
         `${scores[0].toString().padStart(pad)}:` +
         scores
             .slice(1)
             .map((score) => {
-                const dif = scores[0] - score
+                const diff = scores[0] - score
                 return (
                     score.toString().padStart(pad) +
                     '\u001b[30m(' +
-                    (dif >= 0 ? '\u001b[32m+' : '\u001b[31m-') +
-                    Math.abs(dif).toString().padStart(pad) +
+                    (diff >= 0 ? '\u001b[32m+' : '\u001b[31m-') +
+                    Math.abs(diff).toString().padStart(diffPad) +
                     '\u001b[30m)'
                 )
             })
@@ -895,10 +1006,10 @@ const scoresToAnsi = (
     )
 }
 
-class SokujiRace {
+export class SokujiRace {
     readonly format: number
     track: Track | null
-    private order: (number | null)[]
+    order: (number | null)[]
     private cache: Omit<SokujiEntity['races'][number], 'trackId'> | null
 
     get teamNum() {
@@ -922,7 +1033,15 @@ class SokujiRace {
 
     get ranks() {
         if (this.cache) return this.cache.ranks
-        return this.order.map((i, r) => (i === 0 ? r + 1 : 0)).filter((t) => t)
+        return this.getRanks(0)
+    }
+
+    get filled() {
+        const filled: boolean[] = Array(this.teamNum).fill(false)
+        for (const i of this.order) {
+            if (i !== null) filled[i] = true
+        }
+        return filled
     }
 
     constructor(options: { format: number; track: Track | null; order?: (number | null)[] })
@@ -959,7 +1078,8 @@ class SokujiRace {
 
     validateOrder() {
         if (this.cache) return
-        const counts = [...Array(this.teamNum)].map(() => 0)
+        const teamNum = this.teamNum
+        const counts = Array<number>(teamNum).fill(0)
         const order = this.order
             .map((i) => {
                 if (i === null) return null
@@ -969,9 +1089,9 @@ class SokujiRace {
             })
             .slice(0, 12)
         if (order.length < 12) order.push(...Array(12 - order.length).fill(null))
-        for (let i = 0; i < this.teamNum; i++) {
+        for (let i = 0; i < teamNum; i++) {
             while (counts[i] < this.format) {
-                const r = order.findLastIndex((i) => i === null)
+                const r = order.lastIndexOf(null)
                 order[r] = i
                 counts[i]++
             }
@@ -996,22 +1116,31 @@ class SokujiRace {
 
     set(ranks: (string | null)[], overwrite = false) {
         this.cache = null
-        if (overwrite)
-            for (let i = 0; i < this.teamNum; i++)
+        const teamNum = this.teamNum
+        let isWritten = (r: number) => this.order[r] !== null
+        let createWrite = (i: number) => (r: number) => {
+            this.order[r] = i
+        }
+        let findLastIndex = () => this.order.lastIndexOf(null)
+        if (overwrite) {
+            for (let i = 0; i < teamNum; i++)
                 if (typeof ranks.at(i) === 'string')
                     while (this.order.includes(i)) this.order[this.order.indexOf(i)] = null
-        let filled = 0
-        const overwrited: boolean[] = Array(12).fill(false)
-        for (let i = 0; i < this.teamNum; i++) {
-            let text = ranks.at(i)
-            if (text == null) {
-                if (this.order.includes(i)) filled++
-                continue
+            const overwrited: boolean[] = Array(12).fill(false)
+            isWritten = (r) => overwrited[r]
+            createWrite = (i) => (r) => {
+                this.order[r] = i
+                overwrited[r] = true
             }
+            findLastIndex = () => overwrited.lastIndexOf(false)
+        }
+        for (let i = 0; i < teamNum; i++) {
+            let text = ranks.at(i)
+            if (text == null) continue
             text = text
+                .slice(0, 9)
                 .replace(/[＋ー０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xfee0))
                 .replace(/[^+\-0-9]/g, '')
-                .slice(0, 9)
             const parsed: number[] = []
             const pushIfNotExists = (...ns: number[]) => {
                 for (const n of ns) if (!parsed.includes(n)) parsed.push(n)
@@ -1045,21 +1174,10 @@ class SokujiRace {
                 pushIfNotExists(...nexts!)
             }
             let count = 0
-            const isWrited = (r: number) => {
-                if (overwrite) return overwrited[r]
-                return this.order[r] !== null
-            }
-            const write = (r: number) => {
-                if (overwrite) overwrited[r] = true
-                this.order[r] = i
-            }
-            const findLastIndex = () => {
-                if (overwrite) return overwrited.findLastIndex((i) => i === false)
-                return this.order.findLastIndex((i) => i === null)
-            }
+            const write = createWrite(i)
             for (const n of parsed) {
                 const r = n - 1
-                if (isWrited(r)) continue
+                if (isWritten(r)) continue
                 write(r)
                 if (++count === this.format) break
             }
@@ -1068,9 +1186,20 @@ class SokujiRace {
                 write(r)
                 count++
             }
-            filled++
         }
-        if (filled >= this.teamNum - 1 || overwrite) {
+        if (overwrite) {
+            const counts = Array<number>(teamNum).fill(0)
+            for (const i of this.order) if (i !== null) counts[i]++
+            for (let i = 0; i < teamNum; i++) {
+                if (counts[i] === 0 && i > 0) continue
+                while (counts[i] < this.format) {
+                    const r = this.order.lastIndexOf(null)
+                    this.order[r] = i
+                    counts[i]++
+                }
+            }
+        }
+        if ([...Array(teamNum)].filter((_, i) => !this.order.includes(i)).length <= 1) {
             this.validateOrder()
             return true
         }
@@ -1078,8 +1207,13 @@ class SokujiRace {
     }
 
     add(ranks: string) {
-        const filtered = this.order.filter((i) => i !== null) as number[]
-        const filled = filtered.length ? Math.max(...filtered) + 1 : 0
-        return this.set([...Array(filled).fill(null), ...ranks.split(/\s+/)])
+        const splitted = ranks.split(/\s+/)
+        let i = 0
+        return this.set(
+            this.filled.map((f) => {
+                if (f) return null
+                return splitted.at(i++) ?? null
+            }),
+        )
     }
 }

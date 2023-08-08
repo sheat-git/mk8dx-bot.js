@@ -4,10 +4,16 @@ import { SokujiUserService } from '@/services/sokuji'
 import { Sokuji, createTextError, sokujiLock } from '@/utilities'
 import { ComponentType, MessageComponentInteraction, ModalSubmitInteraction, TextInputStyle } from 'discord.js'
 
-const check = (options: { sokuji: Sokuji; interaction: MessageComponentInteraction | ModalSubmitInteraction }) => {
-    if (options.sokuji.configMessageId === options.interaction.message?.id) return true
+const checkConfig = (options: {
+    sokuji: Sokuji
+    interaction: MessageComponentInteraction | ModalSubmitInteraction
+}) => {
+    if (options.sokuji.configMessageId === options.interaction.message?.id) return
     options.interaction.deleteReply().catch(() => {})
-    return false
+    throw createTextError(
+        'The options of the completed sokuji cannot be changed. Please resume it and try again.',
+        '終了した即時集計の設定は変更できません。変更するには再開してから行って下さい。',
+    )
 }
 
 InteractionHandler.button.register({
@@ -16,10 +22,10 @@ InteractionHandler.button.register({
         await interaction.deferUpdate()
         await sokujiLock.acquire(interaction.channelId, async () => {
             const sokuji = await Sokuji.loadNow(interaction.channelId, true)
-            if (!check({ sokuji, interaction })) return
+            checkConfig({ sokuji, interaction })
             sokuji.isJa = lang === 'ja'
             await Promise.all([
-                sokuji.editPrevMessage(interaction.client),
+                sokuji.editPrevMessage(interaction.client, { embeds: 'overwrite', components: 'overwrite' }),
                 interaction.editReply(await sokuji.createConfigMessage()),
             ])
             await sokuji.save(true)
@@ -33,11 +39,11 @@ InteractionHandler.button.register({
         await interaction.deferUpdate()
         await sokujiLock.acquire(interaction.channelId, async () => {
             const sokuji = await Sokuji.loadNow(interaction.channelId, true)
-            if (!check({ sokuji, interaction })) return
+            checkConfig({ sokuji, interaction })
             sokuji.showText = command === 'show'
             await Promise.all([
-                sokuji.editPrevMessage(interaction.client),
-                interaction.editReply(await sokuji.createConfigMessage()),
+                sokuji.editPrevMessage(interaction.client, { content: 'overwrite' }),
+                interaction.editReply({ components: sokuji.createConfigComponents() }),
             ])
             await sokuji.save(true)
         })
@@ -50,11 +56,11 @@ InteractionHandler.button.register({
         await interaction.deferUpdate()
         await sokujiLock.acquire(interaction.channelId, async () => {
             const sokuji = await Sokuji.loadNow(interaction.channelId, true)
-            if (!check({ sokuji, interaction })) return
+            checkConfig({ sokuji, interaction })
             sokuji.showImage = command === 'show'
             await Promise.all([
-                sokuji.editPrevMessage(interaction.client),
-                interaction.editReply(await sokuji.createConfigMessage()),
+                sokuji.editPrevMessage(interaction.client, { embeds: 'overwrite', files: 'overwrite' }),
+                interaction.editReply({ components: sokuji.createConfigComponents() }),
             ])
             await sokuji.save(true)
         })
@@ -67,11 +73,11 @@ InteractionHandler.stringSelect.register({
         await interaction.deferUpdate()
         await sokujiLock.acquire(interaction.channelId, async () => {
             const sokuji = await Sokuji.loadNow(interaction.channelId, true)
-            if (!check({ sokuji, interaction })) return
+            checkConfig({ sokuji, interaction })
             sokuji.mode = interaction.values[0] as Sokuji['mode']
             await Promise.all([
-                sokuji.editPrevMessage(interaction.client),
-                interaction.editReply(await sokuji.createConfigMessage()),
+                sokuji.editPrevMessage(interaction.client, { embeds: 'overwrite' }),
+                interaction.editReply({ components: sokuji.createConfigComponents() }),
             ])
             await sokuji.save(true)
         })
@@ -105,12 +111,11 @@ InteractionHandler.button.register({
 
 InteractionHandler.button.register({
     commands: ['sokuji', 'config', 'tags'],
-    handle: async (interaction) => {
-        const sokuji = await Sokuji.loadNow(interaction.channelId, true)
-        if (!check({ sokuji, interaction })) return
+    handle: async (interaction, [option]) => {
+        const tags = option.split(' ')
         const isJa = interaction.locale === 'ja'
         await interaction.showModal({
-            customId: `sokuji_config_tags_${sokuji.tags.length}`,
+            customId: `sokuji_config_tags_${tags.length}`,
             title: isJa ? 'タグを変更' : 'Edit Tags',
             components: [
                 {
@@ -121,7 +126,7 @@ InteractionHandler.button.register({
                             customId: 'tags',
                             style: TextInputStyle.Paragraph,
                             label: isJa ? 'すべてのタグを改行区切りで入力' : 'Enter all tags separated by line breaks',
-                            value: sokuji.tags.join('\n'),
+                            value: tags.join('\n'),
                             required: true,
                         },
                     ],
@@ -141,14 +146,19 @@ InteractionHandler.modalSubmit.register({
             .map((tag) => tag.replace(/\s/g, '').slice(0, 10))
             .filter((tag) => tag)
         const invalidTagsLength = createTextError('The number of tags is incorrect.', 'タグの数が正しくありません。')
-        if (tags.length !== parseInt(teamNum)) throw invalidTagsLength
+        if (tags.length !== Number(teamNum)) throw invalidTagsLength
         await sokujiLock.acquire(interaction.channelId!, async () => {
             const sokuji = await Sokuji.loadNow(interaction.channelId!, true)
-            if (!check({ sokuji, interaction })) return
+            checkConfig({ sokuji, interaction })
             if (tags.length !== sokuji.teamNum) throw invalidTagsLength
             sokuji.tags = tags
             await Promise.all([
-                sokuji.editPrevMessage(interaction.client),
+                sokuji.editConfigMessage(interaction.client, { components: 'overwrite' }),
+                sokuji.editPrevMessage(interaction.client, {
+                    embeds: 'overwrite',
+                    files: 'overwrite',
+                    components: 'overwrite',
+                }),
                 interaction.followUp(sokuji.isJa ? 'タグを変更しました。' : 'Tags have been edited.'),
             ])
             await sokuji.save(true)
@@ -159,8 +169,6 @@ InteractionHandler.modalSubmit.register({
 InteractionHandler.button.register({
     commands: ['sokuji', 'config', 'raceNum'],
     handle: async (interaction) => {
-        const sokuji = await Sokuji.loadNow(interaction.channelId, true)
-        if (!check({ sokuji, interaction })) return
         const isJa = interaction.locale === 'ja'
         await interaction.showModal({
             customId: 'sokuji_config_raceNum',
@@ -174,7 +182,7 @@ InteractionHandler.button.register({
                             customId: 'raceNum',
                             style: TextInputStyle.Short,
                             label: isJa ? 'レース数を数字で入力' : 'Enter the total races as a number',
-                            placeholder: sokuji.raceNum.toString(),
+                            placeholder: '12',
                             required: true,
                         },
                     ],
@@ -196,7 +204,7 @@ InteractionHandler.modalSubmit.register({
         await interaction.deferReply()
         await sokujiLock.acquire(interaction.channelId!, async () => {
             const sokuji = await Sokuji.loadNow(interaction.channelId!, true)
-            if (!check({ sokuji, interaction })) return
+            checkConfig({ sokuji, interaction })
             if (raceNum < sokuji.races.length)
                 throw createTextError(
                     `More than the specified number of races have already been registered. Please specify a value greater than or equal to ${sokuji.races.length}.`,
@@ -204,7 +212,12 @@ InteractionHandler.modalSubmit.register({
                 )
             sokuji.raceNum = raceNum
             await Promise.all([
-                sokuji.editPrevMessage(interaction.client),
+                sokuji.editPrevMessage(interaction.client, {
+                    content: 'overwrite',
+                    embeds: 'overwrite',
+                    files: 'overwrite',
+                    components: 'overwrite',
+                }),
                 interaction.followUp(sokuji.isJa ? 'レース数を変更しました。' : 'Total races has been edited.'),
             ])
             await sokuji.save(true)
