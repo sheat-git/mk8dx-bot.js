@@ -6,13 +6,22 @@ InteractionHandler.button.register({
     handle: async (interaction, [id]) => {
         await interaction.update({ components: [] })
         await sokujiLock.acquire(interaction.channelId, async () => {
-            const sokuji = await Sokuji.loadById(id, true)
-            sokuji.isEnded = false
-            const [configMessage, sokujiMessage] = await Promise.all([
-                interaction.followUp(await sokuji.createConfigMessage()),
-                interaction.followUp(await sokuji.createMessage()),
+            const [prevSokuji, newSokuji] = await Promise.all([
+                Sokuji.loadNow(interaction.channelId),
+                Sokuji.loadById(id, true),
             ])
-            await sokuji.save(
+            if (prevSokuji) {
+                prevSokuji.isEnded = true
+                prevSokuji.editPrevMessage(interaction.client, { components: 'overwrite' })
+                prevSokuji.deleteConfigMessage(interaction.client)
+                prevSokuji.save(true).catch(() => {})
+            }
+            newSokuji.isEnded = false
+            const [configMessage, sokujiMessage] = await Promise.all([
+                interaction.followUp(await newSokuji.createConfigMessage()),
+                interaction.followUp(await newSokuji.createMessage()),
+            ])
+            await newSokuji.save(
                 {
                     configMessageId: configMessage.id,
                     messageId: sokujiMessage.id,

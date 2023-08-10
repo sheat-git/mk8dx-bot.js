@@ -15,19 +15,19 @@ const createDataCommandRunner =
 MessageHandler.withPrefix.register({
     commands: ['data'],
     isCommand: (command) => /^data\d+$/.test(command),
-    handle: createDataCommandRunner({ type: 'mmr', showSettings: true }),
+    handle: createDataCommandRunner({ type: '_mmr', showSettings: true }),
 })
 
 MessageHandler.withPrefix.register({
     commands: ['fcData', 'fcd'],
     isCommand: (command) => /^fcd(ata)?\d+$/.test(command),
-    handle: createDataCommandRunner({ type: 'mmr', showSettings: true }, 'fcs'),
+    handle: createDataCommandRunner({ type: '_mmr', showSettings: true }, 'fcs'),
 })
 
 MessageHandler.withPrefix.register({
     commands: ['roomData', 'rd'],
     isCommand: (command) => /^rd(ata)?\d+$/.test(command),
-    handle: createDataCommandRunner({ type: 'mmr', showSettings: true }, 'room'),
+    handle: createDataCommandRunner({ type: '_mmr', showSettings: true }, 'room'),
 })
 
 MessageHandler.withPrefix.register({
@@ -36,15 +36,21 @@ MessageHandler.withPrefix.register({
 })
 
 MessageHandler.withPrefix.register({
-    commands: ['mmr', 'peak'],
+    commands: ['mmr'],
     isCommand: (command) => /^(mmr|peak)\d+$/.test(command),
-    handle: createDataCommandRunner({ type: 'mmr' }),
+    handle: createDataCommandRunner({ type: '_mmr' }),
 })
 
 MessageHandler.withPrefix.register({
     commands: ['fcMmr', 'fcm'],
     isCommand: (command) => /^(fcmmr|fcm)\d+$/.test(command),
-    handle: createDataCommandRunner({ type: 'mmr' }, 'fcs'),
+    handle: createDataCommandRunner({ type: '_mmr' }, 'fcs'),
+})
+
+MessageHandler.withPrefix.register({
+    commands: ['peak'],
+    isCommand: (command) => /^(mmr|peak)\d+$/.test(command),
+    handle: createDataCommandRunner({ type: '_peak' }),
 })
 
 MessageHandler.withPrefix.register({
@@ -66,7 +72,7 @@ MessageHandler.withPrefix.register({
 })
 
 MessageHandler.withPrefix.register({
-    commands: ['names'],
+    commands: ['names', 'nameLog', 'nameHistory'],
     handle: createDataCommandRunner({ type: 'nameHistory' }),
 })
 

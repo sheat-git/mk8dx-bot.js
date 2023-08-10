@@ -268,7 +268,10 @@ export class Sokuji<HasPrev extends boolean = boolean> {
         return this.pendingRace
     }
 
-    async saveWithPendingRace(messageId: string) {
+    saveWithPendingRace(messageId: string): Promise<void>
+    saveWithPendingRace(usePrevMessageId: If<HasPrev, true, never>): Promise<void>
+    async saveWithPendingRace(option: string | true) {
+        const pendingRaceMessageId = option === true ? this.pendingRaceMessageId! : option
         await SokujiService.default.put({
             id: this.id,
             guildId: this.guildId,
@@ -281,7 +284,7 @@ export class Sokuji<HasPrev extends boolean = boolean> {
             scores: this.scores,
             raceNum: this.raceNum,
             races: this.races.map((race) => race.toEntity(true)),
-            pendingRace: this.pendingRace ? { ...this.pendingRace.toEntity(), messageId } : null,
+            pendingRace: this.pendingRace ? { ...this.pendingRace.toEntity(), messageId: pendingRaceMessageId } : null,
             others: this.others,
             isEnded: this.isEnded,
         })
@@ -633,31 +636,31 @@ export class Sokuji<HasPrev extends boolean = boolean> {
                         .setStyle(ButtonStyle.Primary),
                 )
             }
-            switch (this.format) {
-                case 6:
-                case 4:
-                    actionRow.addComponents(
-                        new ButtonBuilder()
-                            .setCustomId('sokuji_edit_race')
-                            .setLabel(this.isJa ? '編集' : 'Edit')
-                            .setStyle(ButtonStyle.Success),
-                    )
-                    break
-                default:
-                    actionRow.addComponents(
-                        new ButtonBuilder()
-                            .setCustomId('sokuji_edit_track')
-                            .setLabel(this.isJa ? 'コース編集' : 'Edit Track')
-                            .setStyle(ButtonStyle.Success),
-                    )
-                    actionRow.addComponents(
-                        new ButtonBuilder()
-                            .setCustomId('sokuji_edit_ranks')
-                            .setLabel(this.isJa ? '順位編集' : 'Edit Ranks')
-                            .setStyle(ButtonStyle.Success),
-                    )
-            }
             if (this.races.length) {
+                switch (this.format) {
+                    case 6:
+                    case 4:
+                        actionRow.addComponents(
+                            new ButtonBuilder()
+                                .setCustomId(`sokuji_edit_race_${this.tags.join(' ')}`)
+                                .setLabel(this.isJa ? '編集' : 'Edit')
+                                .setStyle(ButtonStyle.Success),
+                        )
+                        break
+                    default:
+                        actionRow.addComponents(
+                            new ButtonBuilder()
+                                .setCustomId('sokuji_edit_track')
+                                .setLabel(this.isJa ? 'コース編集' : 'Edit Track')
+                                .setStyle(ButtonStyle.Success),
+                        )
+                        actionRow.addComponents(
+                            new ButtonBuilder()
+                                .setCustomId(`sokuji_edit_ranks_${this.tags.join(' ')}`)
+                                .setLabel(this.isJa ? '順位編集' : 'Edit Ranks')
+                                .setStyle(ButtonStyle.Success),
+                        )
+                }
                 actionRow.addComponents(
                     new ButtonBuilder()
                         .setCustomId('sokuji_undo')

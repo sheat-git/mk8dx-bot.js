@@ -18,11 +18,9 @@ export class StartCommand extends Command<{
             ])
             if (prevSokuji && !prevSokuji.isEnded) {
                 prevSokuji.isEnded = true
-                Promise.all([
-                    prevSokuji.editPrevMessage(this.data.client, { components: 'overwrite' }),
-                    prevSokuji.deleteConfigMessage(this.data.client),
-                    prevSokuji.save(true).catch(() => {}),
-                ])
+                prevSokuji.editPrevMessage(this.data.client, { components: 'overwrite' })
+                prevSokuji.deleteConfigMessage(this.data.client)
+                prevSokuji.save(true).catch(() => {})
             }
             const [configMessage, sokujiMessage] = await Promise.all([
                 this.reply({

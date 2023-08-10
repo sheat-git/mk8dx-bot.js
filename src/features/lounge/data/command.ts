@@ -74,7 +74,10 @@ export const extractPlayers = async (
                     true,
                 )
                 if (!player) return { name: member.displayName }
-                return { name: `${player.name} (${member.displayName})`, data: player }
+                return {
+                    name: member.displayName !== player.name ? `${player.name} (${member.displayName})` : player.name,
+                    data: player,
+                }
             }),
         )
     }
@@ -112,7 +115,9 @@ export class DataCommand extends Command<{
                 case 'links':
                 case 'country':
                 case 'switchFc':
-                case 'mmr':
+                case '_mmr':
+                case '_peak':
+                case 'mmr+peak':
                 case 'strikes':
                     // @ts-expect-error: ここのDataTypeはDataTypeWithDataになる
                     return createDataMessageWithData(options)
@@ -135,7 +140,7 @@ type PlayerWithDetails = Player & { details?: Lounge.PlayerDetails }
 
 export type DataType = keyof typeof dataTypes
 
-type DataTypeWithData = Extract<DataType, 'links' | 'country' | 'switchFc' | 'mmr' | 'strikes'>
+type DataTypeWithData = Extract<DataType, 'links' | 'country' | 'switchFc' | '_mmr' | '_peak' | 'mmr+peak' | 'strikes'>
 type DataTypeWithDetails = Exclude<DataType, DataTypeWithData>
 
 export const dataTypes = {
@@ -143,7 +148,9 @@ export const dataTypes = {
     country: 'Country',
     switchFc: 'Switch FC',
     baseMmr: 'Base MMR',
-    mmr: 'MMR',
+    _mmr: 'MMR',
+    _peak: 'Peak MMR',
+    'mmr+peak': 'MMR + Peak MMR',
     averageMmr: 'Average MMR',
     averageRoomMmr: 'Average Room MMR',
     winRate: 'Win Rate',
@@ -156,6 +163,8 @@ export const dataTypes = {
     strikes: 'Strikes',
 } as const
 
+export const filteredDataTypes = Object.fromEntries(Object.entries(dataTypes).filter(([key]) => !key.startsWith('_')))
+
 export const createDataMessage = async (options: {
     players: Player[]
     season?: number
@@ -167,7 +176,9 @@ export const createDataMessage = async (options: {
         case 'links':
         case 'country':
         case 'switchFc':
-        case 'mmr':
+        case '_mmr':
+        case '_peak':
+        case 'mmr+peak':
         case 'strikes':
             return await createDataMessageWithData({
                 players: await Promise.all(
@@ -240,11 +251,6 @@ const createDataMessageWithData = async (options: {
     const embed = new EmbedBuilder().setTitle(dataTypes[options.type])
     if (averageMmr !== null) embed.setColor(Lounge.Season.get(options.season).getDivision(averageMmr).color)
     switch (options.type) {
-        case 'mmr':
-            embed.setDescription('`MMR` (`Peak MMR`)')
-            break
-    }
-    switch (options.type) {
         case 'strikes':
             await buildStrikesEmbed(embed, options.players, {
                 season: options.season,
@@ -279,7 +285,11 @@ const createDataMessageWithData = async (options: {
                                     )
                                 case 'switchFc':
                                     return `[${data.switchFc ?? '-'}](${url})`
-                                case 'mmr':
+                                case '_mmr':
+                                    return `[${data.mmr ?? '-'}](${url})`
+                                case '_peak':
+                                    return `[${data.maxMmr ?? '-'}](${url})`
+                                case 'mmr+peak':
                                     if (data.mmr === undefined) return `[-](${url})`
                                     return `[${data.mmr}](${url}) (${data.maxMmr ?? '-'})`
                             }
@@ -290,7 +300,21 @@ const createDataMessageWithData = async (options: {
     }
     if (options.players.filter((player) => player.data !== null).length > 1) {
         switch (options.type) {
-            case 'mmr':
+            case '_mmr':
+                embed.addFields({
+                    name: 'Avg.',
+                    value: averageValue(options.players.map(({ data }) => data?.mmr)),
+                    inline: false,
+                })
+                break
+            case '_peak':
+                embed.addFields({
+                    name: 'Avg.',
+                    value: averageValue(options.players.map(({ data }) => data?.maxMmr)),
+                    inline: false,
+                })
+                break
+            case 'mmr+peak':
                 embed.addFields({
                     name: 'Avg.',
                     value:
@@ -337,7 +361,7 @@ const createComponents = (options: { type: DataType; season?: number; showSeason
                     type: ComponentType.StringSelect,
                     custom_id: 'lounge_data_type',
                     placeholder: 'Type',
-                    options: Object.entries(dataTypes).map(([type, label]) => ({
+                    options: Object.entries(filteredDataTypes).map(([type, label]) => ({
                         label,
                         value: type,
                         default: type == options.type,
@@ -430,11 +454,12 @@ const buildBaseMmrEmbed = (embed: EmbedBuilder, players: PlayerWithDetails[]) =>
             }
         }),
     )
-    embed.addFields({
-        name: 'Avg.',
-        value: averageValue(baseMmrs),
-        inline: true,
-    })
+    if (players.filter((player) => player !== null).length > 1)
+        embed.addFields({
+            name: 'Avg.',
+            value: averageValue(baseMmrs),
+            inline: true,
+        })
 }
 
 const buildAverageMmrEmbed = (embed: EmbedBuilder, players: PlayerWithDetails[]) => {

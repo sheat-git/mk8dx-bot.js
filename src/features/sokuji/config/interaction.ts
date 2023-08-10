@@ -28,7 +28,7 @@ InteractionHandler.button.register({
                 sokuji.editPrevMessage(interaction.client, { embeds: 'overwrite', components: 'overwrite' }),
                 interaction.editReply(await sokuji.createConfigMessage()),
             ])
-            await sokuji.save(true)
+            await sokuji.saveWithPendingRace(true)
         })
     },
 })
@@ -45,7 +45,7 @@ InteractionHandler.button.register({
                 sokuji.editPrevMessage(interaction.client, { content: 'overwrite' }),
                 interaction.editReply({ components: sokuji.createConfigComponents() }),
             ])
-            await sokuji.save(true)
+            await sokuji.saveWithPendingRace(true)
         })
     },
 })
@@ -62,7 +62,7 @@ InteractionHandler.button.register({
                 sokuji.editPrevMessage(interaction.client, { embeds: 'overwrite', files: 'overwrite' }),
                 interaction.editReply({ components: sokuji.createConfigComponents() }),
             ])
-            await sokuji.save(true)
+            await sokuji.saveWithPendingRace(true)
         })
     },
 })
@@ -161,7 +161,7 @@ InteractionHandler.modalSubmit.register({
                 }),
                 interaction.followUp(sokuji.isJa ? 'タグを変更しました。' : 'Tags have been edited.'),
             ])
-            await sokuji.save(true)
+            await sokuji.saveWithPendingRace(true)
         })
     },
 })
@@ -220,7 +220,8 @@ InteractionHandler.modalSubmit.register({
                 }),
                 interaction.followUp(sokuji.isJa ? 'レース数を変更しました。' : 'Total races has been edited.'),
             ])
-            await sokuji.save(true)
+            if (sokuji.raceNum <= sokuji.races.length) await sokuji.save(true)
+            else await sokuji.saveWithPendingRace(true)
         })
     },
 })

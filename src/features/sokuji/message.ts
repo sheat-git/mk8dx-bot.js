@@ -45,7 +45,7 @@ export const handleSokujiMessage = async (message: Message) => {
                 await sokuji.save(newMessage.id)
                 return true
             }
-            if (sokuji.races.length === sokuji.raceNum) return false
+            if (sokuji.races.length >= sokuji.raceNum) return false
             const race = sokuji.pendingRace ?? (await sokuji.startNextRace())
             if (race.add(content)) {
                 sokuji.pushPendingRace()

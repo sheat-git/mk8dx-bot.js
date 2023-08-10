@@ -4,6 +4,7 @@ import { ApplicationHandler, InteractionHandler, SlashHandler } from './handler'
 
 export const handleInteraction = async (interaction: Interaction) => {
     try {
+        if ('customId' in interaction && interaction.customId === '0') return
         switch (interaction.type) {
             case InteractionType.ApplicationCommand:
                 switch (interaction.commandType) {

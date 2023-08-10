@@ -1,6 +1,6 @@
 import { ChatInputCommandInteraction, SlashCommandSubcommandBuilder } from 'discord.js'
 import { SlashHandler } from '@/interaction'
-import { DataCommand, DataType, dataTypes } from './command'
+import { DataCommand, DataType, dataTypes, filteredDataTypes } from './command'
 
 const createBaseBuilder = () =>
     new SlashCommandSubcommandBuilder()
@@ -48,17 +48,17 @@ SlashHandler.default.registerSub({
                 .setName('type')
                 .setDescription('Type')
                 .setChoices(
-                    ...Object.entries(dataTypes).map(([type, label]) => ({
+                    ...Object.entries(filteredDataTypes).map(([type, label]) => ({
                         name: label,
                         value: type,
                     })),
                 ),
         ),
     handle: async (interaction) => {
-        const type = interaction.options.getString('type') ?? 'mmr'
+        const type = interaction.options.getString('type') ?? '_mmr'
         await new DataCommand(interaction, {
             ...extractOptionsWithSeason(interaction),
-            type: type in dataTypes ? (type as DataType) : 'mmr',
+            type: type in dataTypes ? (type as DataType) : '_mmr',
             showSettings: true,
         }).run()
     },
@@ -79,14 +79,21 @@ SlashHandler.default.registerSub({
 
 SlashHandler.default.registerSub({
     parent: 'lounge',
-    builder: createBaseBuilderWithSeason()
-        .setName('mmr')
-        .setDescription('MMR and Peak MMR')
-        .setDescriptionLocalization('ja', 'MMRとPeak MMR'),
+    builder: createBaseBuilderWithSeason().setName('mmr').setDescription('MMR'),
     handle: (interaction) =>
         new DataCommand(interaction, {
             ...extractOptionsWithSeason(interaction),
-            type: 'mmr',
+            type: '_mmr',
+        }).run(),
+})
+
+SlashHandler.default.registerSub({
+    parent: 'lounge',
+    builder: createBaseBuilderWithSeason().setName('peak').setDescription('Peak MMR'),
+    handle: (interaction) =>
+        new DataCommand(interaction, {
+            ...extractOptionsWithSeason(interaction),
+            type: '_peak',
         }).run(),
 })
 

@@ -6,7 +6,7 @@ SlashHandler.default.registerSub({
     builder: (builder) =>
         builder
             .setName('calc')
-            .setDescription('Calculate the mmr changes.')
+            .setDescription('Calculate the mmr changes')
             .setDescriptionLocalization('ja', 'MMRの変化量を計算')
             .addStringOption((option) =>
                 option

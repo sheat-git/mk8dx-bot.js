@@ -72,10 +72,12 @@ MessageHandler.withPrefix.register({
                     raceN !== null ? `Race ${raceN} does not exist.` : 'The target race does not exist.',
                     raceN !== null ? `${raceN}レース目は存在しません。` : '対象のレースが存在しません。',
                 )
-            for (let i = 0; i < sokuji.teamNum; i++) sokuji.scores[i] -= race.scores[i]
+            let scores = race.scores
+            for (let i = 0; i < sokuji.teamNum; i++) sokuji.scores[i] -= scores[i]
             race.set(ranks, true)
             race.validateOrder()
-            for (let i = 0; i < sokuji.teamNum; i++) sokuji.scores[i] += race.scores[i]
+            scores = race.scores
+            for (let i = 0; i < sokuji.teamNum; i++) sokuji.scores[i] += scores[i]
             await Promise.all([
                 message.channel.send({
                     content: sokuji.isJa
