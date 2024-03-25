@@ -2,22 +2,27 @@ import { ActivityType, Client, Partials } from 'discord.js'
 import { handleInteraction, setCommands } from './interaction'
 import { handleMessage } from './message'
 import './features'
+import { setupCanvas, setupChart } from './utilities'
+
+setupCanvas()
+setupChart()
 
 const client = new Client({
-    shards: 'auto',
     intents: ['Guilds', 'GuildMembers', 'GuildMessages', 'DirectMessages', 'MessageContent'],
     partials: [Partials.Channel, Partials.Message],
 })
 
-const updateActivity = (options: { client: Client<true> }) => {
-    options.client.user.setActivity(`%sheat - ${client.guilds.cache.size} servers`, {
+const updateActivity = async (options: { client: Client<true> }) => {
+    const size =
+        (await options.client.shard?.broadcastEval((c) => c.guilds.cache.size))?.reduce((a, b) => a + b) ??
+        options.client.guilds.cache.size
+    options.client.user.setActivity(`%sheat - ${size} servers`, {
         type: ActivityType.Watching,
     })
 }
 
 client.once('ready', async (client) => {
-    updateActivity({ client })
-    await setCommands(client.application, true)
+    await Promise.all([updateActivity({ client }), setCommands(client.application, true)])
 })
 client.on('guildCreate', updateActivity)
 client.on('guildDelete', updateActivity)
@@ -29,4 +34,4 @@ client.on('error', (error) => {
     console.error(error)
 })
 
-export default client
+client.login()

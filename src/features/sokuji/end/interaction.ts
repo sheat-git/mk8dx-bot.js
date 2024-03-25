@@ -21,13 +21,11 @@ InteractionHandler.button.register({
                 interaction.followUp(await newSokuji.createConfigMessage()),
                 interaction.followUp(await newSokuji.createMessage()),
             ])
-            await newSokuji.save(
-                {
-                    configMessageId: configMessage.id,
-                    messageId: sokujiMessage.id,
-                },
-                true,
-            )
+            await newSokuji.save({
+                configMessageId: configMessage.id,
+                messageId: sokujiMessage.id,
+                updateChannel: true,
+            })
         })
     },
 })

@@ -213,10 +213,22 @@ export class Sokuji<HasPrev extends boolean = boolean> {
 
     save(usePrevMessageId: If<HasPrev, true, never>): Promise<void>
     save(messageId: string): Promise<void>
-    save(options: { messageId: string; configMessageId: string | null }, updateChannel?: boolean): Promise<void>
-    async save(options: { messageId: string; configMessageId: string | null } | string | true, updateChannel = false) {
+    save(options: {
+        messageId: string
+        configMessageId: string | null
+        updateChannel?: boolean
+        updateConfig?: boolean
+    }): Promise<void>
+    async save(
+        options:
+            | { messageId: string; configMessageId: string | null; updateChannel?: boolean; updateConfig?: boolean }
+            | string
+            | true,
+    ) {
         let configMessageId: string | null = this.configMessageId
         let messageId: string
+        let updateChannel: boolean | undefined
+        let updateConfig: boolean | undefined
         switch (typeof options) {
             case 'boolean':
                 messageId = this.prevMessageId!
@@ -227,6 +239,8 @@ export class Sokuji<HasPrev extends boolean = boolean> {
             case 'object':
                 messageId = options.messageId
                 configMessageId = options.configMessageId
+                updateChannel = options.updateChannel
+                updateConfig = options.updateConfig
                 break
         }
         await Promise.all([
@@ -249,12 +263,14 @@ export class Sokuji<HasPrev extends boolean = boolean> {
                 },
                 updateChannel,
             ),
-            SokujiConfigService.default.put(this.channelId, {
-                isJa: this.isJa,
-                showText: this.showText,
-                showImage: this.showImage,
-                mode: this.mode,
-            }),
+            updateConfig
+                ? SokujiConfigService.default.put(this.channelId, {
+                      isJa: this.isJa,
+                      showText: this.showText,
+                      showImage: this.showImage,
+                      mode: this.mode,
+                  })
+                : null,
         ])
     }
 
@@ -268,26 +284,38 @@ export class Sokuji<HasPrev extends boolean = boolean> {
         return this.pendingRace
     }
 
-    saveWithPendingRace(messageId: string): Promise<void>
-    saveWithPendingRace(usePrevMessageId: If<HasPrev, true, never>): Promise<void>
-    async saveWithPendingRace(option: string | true) {
+    saveWithPendingRace(messageId: string, updateConfig?: boolean): Promise<void>
+    saveWithPendingRace(usePrevMessageId: If<HasPrev, true, never>, updateConfig?: boolean): Promise<void>
+    async saveWithPendingRace(option: string | true, updateConfig = false) {
         const pendingRaceMessageId = option === true ? this.pendingRaceMessageId! : option
-        await SokujiService.default.put({
-            id: this.id,
-            guildId: this.guildId,
-            channelId: this.channelId,
-            configMessageId: this.configMessageId,
-            messageId: this.prevMessageId!,
-            format: this.format,
-            tags: this.tags,
-            colors: this.colors,
-            scores: this.scores,
-            raceNum: this.raceNum,
-            races: this.races.map((race) => race.toEntity(true)),
-            pendingRace: this.pendingRace ? { ...this.pendingRace.toEntity(), messageId: pendingRaceMessageId } : null,
-            others: this.others,
-            isEnded: this.isEnded,
-        })
+        await Promise.all([
+            SokujiService.default.put({
+                id: this.id,
+                guildId: this.guildId,
+                channelId: this.channelId,
+                configMessageId: this.configMessageId,
+                messageId: this.prevMessageId!,
+                format: this.format,
+                tags: this.tags,
+                colors: this.colors,
+                scores: this.scores,
+                raceNum: this.raceNum,
+                races: this.races.map((race) => race.toEntity(true)),
+                pendingRace: this.pendingRace
+                    ? { ...this.pendingRace.toEntity(), messageId: pendingRaceMessageId }
+                    : null,
+                others: this.others,
+                isEnded: this.isEnded,
+            }),
+            updateConfig
+                ? SokujiConfigService.default.put(this.channelId, {
+                      isJa: this.isJa,
+                      showText: this.showText,
+                      showImage: this.showImage,
+                      mode: this.mode,
+                  })
+                : null,
+        ])
     }
 
     pushPendingRace() {

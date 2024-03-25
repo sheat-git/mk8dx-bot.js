@@ -62,7 +62,7 @@ export class SokujiService {
     private readonly deta = new DetaService<SokujiItem>('Sokuji')
     private readonly channelDeta = new DetaService<{
         sokujiId: string
-    }>('ChannelSokujiId')
+    }>('SokujiChannelSokujiId')
 
     static readonly default = new SokujiService()
 

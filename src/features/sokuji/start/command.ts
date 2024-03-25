@@ -32,13 +32,12 @@ export class StartCommand extends Command<{
                     fetchReply: true,
                 }),
             ])
-            await newSokuji.save(
-                {
-                    messageId: sokujiMessage.id,
-                    configMessageId: configMessage.id,
-                },
-                true,
-            )
+            await newSokuji.save({
+                messageId: sokujiMessage.id,
+                configMessageId: configMessage.id,
+                updateChannel: true,
+                updateConfig: true,
+            })
         })
     }
 }

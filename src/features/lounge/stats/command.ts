@@ -1,4 +1,4 @@
-import { createCanvas } from 'canvas'
+import { createCanvas } from '@napi-rs/canvas'
 import { Chart } from 'chart.js'
 import { APISelectMenuOption, ButtonStyle, ComponentType } from 'discord.js'
 import { Lounge } from 'mk8dx'

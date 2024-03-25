@@ -8,12 +8,16 @@
     "rootDir": "src",
     "paths": {
       "@/*": [
-        "src/*"
+        "./src/*"
       ]
     },
     "outDir": "build",
     "moduleResolution": "node",
     "strict": true,
-    "esModuleInterop": true,
-  }
+    "isolatedModules": true,
+    "esModuleInterop": true
+  },
+  "exclude": [
+    "build.ts"
+  ]
 }

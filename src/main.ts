@@ -1,7 +1,9 @@
-import client from './client'
-import { setupCanvas, setupChart } from './utilities'
+import { ShardingManager } from 'discord.js'
 
-setupCanvas()
-setupChart()
+const manager = new ShardingManager('./build/client.js', { totalShards: 2 })
 
-client.login()
+manager.on('shardCreate', async (shard) => {
+    console.log(`Launched shard ${shard.id}`)
+})
+
+manager.spawn()

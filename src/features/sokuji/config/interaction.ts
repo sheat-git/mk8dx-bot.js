@@ -28,7 +28,7 @@ InteractionHandler.button.register({
                 sokuji.editPrevMessage(interaction.client, { embeds: 'overwrite', components: 'overwrite' }),
                 interaction.editReply(await sokuji.createConfigMessage()),
             ])
-            await sokuji.saveWithPendingRace(true)
+            await sokuji.saveWithPendingRace(true, true)
         })
     },
 })
@@ -45,7 +45,7 @@ InteractionHandler.button.register({
                 sokuji.editPrevMessage(interaction.client, { content: 'overwrite' }),
                 interaction.editReply({ components: sokuji.createConfigComponents() }),
             ])
-            await sokuji.saveWithPendingRace(true)
+            await sokuji.saveWithPendingRace(true, true)
         })
     },
 })
@@ -62,7 +62,7 @@ InteractionHandler.button.register({
                 sokuji.editPrevMessage(interaction.client, { embeds: 'overwrite', files: 'overwrite' }),
                 interaction.editReply({ components: sokuji.createConfigComponents() }),
             ])
-            await sokuji.saveWithPendingRace(true)
+            await sokuji.saveWithPendingRace(true, true)
         })
     },
 })
@@ -79,7 +79,7 @@ InteractionHandler.stringSelect.register({
                 sokuji.editPrevMessage(interaction.client, { embeds: 'overwrite' }),
                 interaction.editReply({ components: sokuji.createConfigComponents() }),
             ])
-            await sokuji.save(true)
+            await sokuji.saveWithPendingRace(true, true)
         })
     },
 })
